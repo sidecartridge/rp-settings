@@ -168,6 +168,10 @@ The user can print all the settings stored in the FLASH memory by calling the `s
     settings_print();
 ```
 
+## Example project
+
+The `/examples` folder contains a simple example project that shows how to use the settings library. The example project uses the `pico-sdk` and must be deployed in a Raspberry Pi Pico or a RP2040 or RP235x microcontroller. The example project is a command-line tool to manage the settings stored in the FLASH memory. The example project uses the UART interface to communicate with the user. The user can send commands to the application to manage the settings. The example project is a good starting point to understand how to use the settings library.
+
 ## Develop and test
 
 ### CLANG
