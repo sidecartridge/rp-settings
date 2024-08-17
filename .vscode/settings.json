@@ -1,0 +1,40 @@
+{
+    "cmake.statusbar.advanced": {
+        "debug": {
+            "visibility": "hidden"
+        },
+        "launch": {
+            "visibility": "hidden"
+        },
+        "build": {
+            "visibility": "default"
+        },
+        "buildTarget": {
+            "visibility": "hidden"
+        }
+    },
+    "cmake.buildBeforeRun": true,
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "cortex-debug.gdbPath": "/usr/local/bin/arm-none-eabi-gdb",
+    "cmake.sourceDirectory": "${workspaceFolder}/",
+    "C_Cpp.errorSquiggles": "disabled",
+    "C_Cpp.codeAnalysis.clangTidy.enabled": true,
+    "C_Cpp.codeAnalysis.exclude": {
+        "**/pico-sdk/src": true,
+        "**/build": true,
+        "**/dist": true
+    },
+    "C_Cpp.clangTidy.args": [
+        "--config-file=${workspaceFolder}/.clang-tidy"
+    ],
+    "[cpp]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    },
+    "[c]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    },
+    "C_Cpp.clang_format_style": "file",
+    "C_Cpp.formatting": "clangFormat",
+    "editor.formatOnSave": true,
+    "C_Cpp.default.compilerPath": "/usr/local/opt/llvm/bin/clang"
+}

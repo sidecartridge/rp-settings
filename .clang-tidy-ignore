@@ -1,0 +1,9 @@
+# Ignore the pico-sdk directory
+- src: "pico-sdk/*"
+  reason: "Third-party code, not part of the project."
+  justified: true
+
+# Build directory
+- src: "build/*"
+  reason: "Build directory, not source code."
+  justified: true
