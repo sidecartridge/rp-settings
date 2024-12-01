@@ -36,5 +36,9 @@
     "C_Cpp.clang_format_style": "file",
     "C_Cpp.formatting": "clangFormat",
     "editor.formatOnSave": true,
-    "C_Cpp.default.compilerPath": "/usr/local/opt/llvm/bin/clang"
+    "C_Cpp.default.compilerPath": "/usr/local/opt/llvm/bin/clang",
+    "C_Cpp.codeAnalysis.clangTidy.checks.disabled": [
+        "clang-diagnostic-error",
+        "clang-diagnostic-error"
+    ]
 }

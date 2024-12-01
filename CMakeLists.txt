@@ -35,9 +35,6 @@ pico_sdk_init()
 add_subdirectory(src)      # Source directory containing the core library or settings
 add_subdirectory(examples) # Example programs that demonstrate usage of the src files
 
-# Optionally, set some global properties or flags for the whole project
-set(CMAKE_C_STANDARD 11)
-
 # Global flags (optimization, warnings, etc.)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffunction-sections -fdata-sections -Wall")
 

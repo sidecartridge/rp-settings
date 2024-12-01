@@ -1,5 +1,5 @@
 ---
-Checks: 'clang-analyzer-*,-clang-analyzer-alpha.*,modernize-*,readability-*,-readability-braces-around-statements,-readability-function-cognitive-complexity'
+Checks: 'google-*,modernize-*,portability-*,readability-*,-readability-braces-around-statements,-readability-function-cognitive-complexity'
 WarningsAsErrors: '*'
 HeaderFilterRegex: '^(src|examples)/.*'
 CheckOptions:
