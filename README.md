@@ -24,7 +24,6 @@ Add the following lines to the `CMakeLists.txt` file of your project:
 # Add subdirectories
 add_subdirectory(settings)
 
-target_include_directories(yourproject PRIVATE ${CMAKE_SOURCE_DIR}/settings)
 target_sources(yourproject PRIVATE  ${CMAKE_SOURCE_DIR}/settings/settings.c)
 ```
 
