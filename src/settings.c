@@ -81,7 +81,7 @@ static void settingsLoadDefaultEntries(const SettingsConfigEntry *entries,
 
 // Load all entries from the FLASH memory, if any. Otherwise, use the default
 // entries.
-static void settingsLoadAllEntries(const SettingsConfigEntry *entries,
+static int settingsLoadAllEntries(const SettingsConfigEntry *entries,
                                    uint16_t numEntries, uint16_t maxEntries) {
   uint8_t *currentAddress = (uint8_t *)(flashSettingsOffset + XIP_BASE);
 
@@ -107,7 +107,7 @@ static void settingsLoadAllEntries(const SettingsConfigEntry *entries,
     // No config found in FLASH. Use default values
     DPRINTF("%lu!=%lu. No config found in FLASH. Using default values.\n",
             magic, configData.magic);
-    return;
+    return -1;
   }
   DPRINTF("Magic value found in FLASH: %lu. Loading the existing values.\n",
           magic);
@@ -151,6 +151,7 @@ static void settingsLoadAllEntries(const SettingsConfigEntry *entries,
     // No else part here since we know every memory entry has a default
     count++;
   }
+  return 0;
 }
 
 int settings_init(const SettingsConfigEntry *defaultEntries,
@@ -204,11 +205,11 @@ int settings_init(const SettingsConfigEntry *defaultEntries,
          defaultNumEntries * sizeof(SettingsConfigEntry));
 
   // Load the configuration from FLASH
-  settingsLoadAllEntries(defaultEntriesWithMagic, defaultNumEntries + 1,
+  int error = settingsLoadAllEntries(defaultEntriesWithMagic, defaultNumEntries + 1,
                          maxEntries);
 
   // Return the number of entries loaded into memory
-  return configData.count;
+  return (error == 0 ? configData.count : error);
 }
 
 // SettingsConfigEntry* entry = settings_find_entry("desired_key");
