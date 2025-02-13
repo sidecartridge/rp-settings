@@ -3,7 +3,7 @@
 # Submodule URL and desired tag
 SUBMODULE_URL="git@github.com:raspberrypi/pico-sdk.git"
 SUBMODULE_PATH="pico-sdk"
-SUBMODULE_TAG="2.0.0"
+SUBMODULE_TAG="2.1.0"
 
 # Check if submodule already exists
 if git config --file .gitmodules --get-regexp path | grep -q "$SUBMODULE_PATH"; then

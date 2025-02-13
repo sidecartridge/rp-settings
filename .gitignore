@@ -57,3 +57,5 @@ dist/
 secrets.sh
 examples/build/
 examples/dist/
+Makefile
+
