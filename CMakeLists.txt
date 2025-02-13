@@ -1,11 +1,18 @@
 # Set minimum required version of CMake
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.26)
+
+# Add the env variable PICO_SDK_PATH if it does not exist
+if(NOT DEFINED ENV{PICO_SDK_PATH})
+    set(ENV{PICO_SDK_PATH} ./pico-sdk)
+endif()
+# Show the value
+message("PICO_SDK_PATH: $ENV{PICO_SDK_PATH}")
 
 # Include build functions from Pico SDK
-include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+include($ENV{PICO_SDK_PATH}/pico_sdk_init.cmake)
 
 # Set name of project (as PROJECT_NAME) and C/C   standards
-project(settings C CXX ASM)
+project(settings C CXX)
 set(CMAKE_C_STANDARD 11)
 
 # Include the Pico SDK (specific for Raspberry Pi Pico projects)

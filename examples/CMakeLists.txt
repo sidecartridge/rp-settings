@@ -1,8 +1,5 @@
 # Set minimum required version of CMake
-cmake_minimum_required(VERSION 3.12)
-
-# Include build functions from Pico SDK
-include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+cmake_minimum_required(VERSION 3.26)
 
 # Set name of project (as PROJECT_NAME) and C/C   standards
 project(examples C CXX ASM)

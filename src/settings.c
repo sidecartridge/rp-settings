@@ -1,14 +1,18 @@
+/**
+ * @file settings.c
+ */
+
 #include "settings.h"
 
-// Static variables for storing the configuration data and flash memory settings
-// Global structure for holding settings
-static ConfigData configData;
-// Size settings flash memory
-static uint32_t flashSettingsSize = SETTINGS_DEFAULT_FLASH_SIZE;
-// Offset in settings flash memory
-static uint32_t flashSettingsOffset = 0;
+/*
+ * -----------
+ * STATIC HELPER FUNCTIONS
+ * -----------
+ */
 
-// We should verify the key format always
+/**
+ * @brief Verify the format of a given key (uppercase, numbers, or '_').
+ */
 static int checkKeyFormat(const char key[SETTINGS_MAX_KEY_LENGTH]) {
   // Check if the key is empty
   if (strlen(key) == 0) {
@@ -20,13 +24,12 @@ static int checkKeyFormat(const char key[SETTINGS_MAX_KEY_LENGTH]) {
   for (size_t i = 0; i < strlen(key); i++) {
     char chr = key[i];
 
-    // Check if the character is not an uppercase letter, a number, or an
-    // underscore
+    // Check if the character is not an uppercase letter, digit or underscore
     if (!isupper(chr) && !isdigit(chr) && chr != '_') {
       DPRINTF(
-          "Error: Invalid character '%c' in key. Only uppercase letters, "
-          "numbers, and '_' are allowed.\n",
-          chr);
+          "Error: Invalid character '%c' in key '%s'. "
+          "Only uppercase letters, numbers, and '_' are allowed.\n",
+          chr, key);
       return -1;  // Invalid key format
     }
   }
@@ -34,66 +37,100 @@ static int checkKeyFormat(const char key[SETTINGS_MAX_KEY_LENGTH]) {
   return 0;  // Valid key format
 }
 
-// Check if the type is valid
+/**
+ * @brief Verify that the type is one of the known types.
+ */
 static int checkTypeFormat(SettingsDataType type) {
   if (type != SETTINGS_TYPE_INT && type != SETTINGS_TYPE_STRING &&
       type != SETTINGS_TYPE_BOOL) {
     DPRINTF("Error: Invalid type format.\n");
-    return -1;  // Invalid type format
+    return -1;
   }
-  return 0;  // Valid type format
+  return 0;
 }
 
-// Load the default entries into memory as the initial configuration
-static void settingsLoadDefaultEntries(const SettingsConfigEntry *entries,
+/**
+ * @brief Load the default entries into memory as the initial config.
+ *
+ * Populates the context's configData with the entries that pass validation.
+ */
+static void settingsLoadDefaultEntries(SettingsContext *ctx,
+                                       const SettingsConfigEntry *entries,
                                        uint16_t numEntries) {
+  // Start with zero count
+  ctx->configData.count = 0;
+
   for (uint16_t i = 0; i < numEntries; i++) {
     if (entries[i].key[0] == '\0' || strlen(entries[i].key) == 0) {
-      break;  // Exit the loop if we encounter a key length of 0 (end of
-              // entries)
+      // If we hit an empty key, we consider it the end of the default list
+      break;
     }
+
     if (checkTypeFormat(entries[i].dataType) != 0) {
       DPRINTF("WARNING: Invalid type format for key %s.\n", entries[i].key);
     } else if (checkKeyFormat(entries[i].key) != 0) {
       DPRINTF("WARNING: Invalid key format for key %s.\n", entries[i].key);
     } else {
+      // Warn if the key is longer than the limit (should be truncated anyway)
       if (strlen(entries[i].key) > (SETTINGS_MAX_KEY_LENGTH - 1)) {
         DPRINTF(
-            "WARNING: SETTINGS_MAX_KEY_LENGTH is %d but key %s is %d "
-            "characters long.\n",
+            "WARNING: SETTINGS_MAX_KEY_LENGTH is %d but key %s "
+            "is %zu characters long.\n",
             SETTINGS_MAX_KEY_LENGTH, entries[i].key, strlen(entries[i].key));
       }
+
+      // Copy the entry
       SettingsConfigEntry tmpEntry = entries[i];
-      configData.entries[i] = tmpEntry;
-      configData.count++;
+      ctx->configData.entries[ctx->configData.count] = tmpEntry;
+      ctx->configData.count++;
     }
   }
 
-  if (configData.count != numEntries) {
+  if (ctx->configData.count != numEntries) {
     DPRINTF(
-        "WARNING: Mismatch between the number of default entries (%d) and "
-        "the number of entries loaded (%d).\n",
-        numEntries, configData.count);
+        "WARNING: Mismatch between the number of default entries (%d) "
+        "and the number of entries loaded (%zu).\n",
+        numEntries, ctx->configData.count);
   } else {
-    DPRINTF("Loaded %d default entries.\n", configData.count);
+    DPRINTF("Loaded %zu default entries.\n", ctx->configData.count);
   }
 }
 
-// Load all entries from the FLASH memory, if any. Otherwise, use the default
-// entries.
-static int settingsLoadAllEntries(const SettingsConfigEntry *entries,
-                                   uint16_t numEntries, uint16_t maxEntries) {
-  uint8_t *currentAddress = (uint8_t *)(flashSettingsOffset + XIP_BASE);
+/**
+ * @brief Load all entries from FLASH if valid, otherwise use default entries.
+ */
+static int settingsLoadAllEntries(SettingsContext *ctx,
+                                  const SettingsConfigEntry *entries,
+                                  uint16_t numEntries, uint16_t maxEntries) {
+  uint8_t *currentAddress = (uint8_t *)(ctx->flashSettingsOffset + XIP_BASE);
 
   // First, load default entries
-  settingsLoadDefaultEntries(entries, numEntries);
+  settingsLoadDefaultEntries(ctx, entries, numEntries);
 
-  // Read the magic value from the FLASH memory
-  // it must be always the first value in the memory setting
+  // The magic value is stored as a string in the first "entry",
+  // i.e. at offset = first entry's value field. By design, your code
+  // placed it in the first entry's value, which is:
+  //    offset ( 0 ) => start of first entry
+  //    offset (30) => key
+  //    offset (34) => dataType
+  //    offset (35) => value
+  // But let's keep it consistent with your original approach:
+  // We'll read the magic as if it is in the memory after we've read it from
+  // flash.
+
+  // The code below copies the entire set of entries from flash in a loop,
+  // but first we check the magic.
+  // We'll read from flash to see what was stored.
+
+  // Actually read the magic from the stored data
+  // The original code:
+  //   magicAddress = currentAddress + SETTINGS_MAX_KEY_LENGTH +
+  //   sizeof(SettingsDataType)
+
   const uint8_t *magicAddress =
       (const uint8_t *)(currentAddress + SETTINGS_MAX_KEY_LENGTH +
                         sizeof(SettingsDataType));
-  // Now it's safe to read the magic value until \0 o SETTINGS_MAX_VALUE_LENGTH
+
   char magicChar[SETTINGS_MAX_VALUE_LENGTH] = {0};
   for (size_t i = 0; i < SETTINGS_MAX_VALUE_LENGTH; i++) {
     if (magicAddress[i] == '\0') {
@@ -101,273 +138,338 @@ static int settingsLoadAllEntries(const SettingsConfigEntry *entries,
     }
     magicChar[i] = magicAddress[i];
   }
-  uint32_t magic = (uint32_t)strtoul(magicChar, NULL, SETTINGS_BASE_10);
+  uint32_t storedMagic = (uint32_t)strtoul(magicChar, NULL, SETTINGS_BASE_10);
 
-  if (magic != configData.magic) {
-    // No config found in FLASH. Use default values
-    DPRINTF("%lu!=%lu. No config found in FLASH. Using default values.\n",
-            magic, configData.magic);
+  if (storedMagic != ctx->configData.magic) {
+    // No matching magic => no valid config found in FLASH. Use default values.
+    DPRINTF("%lu != %lu. No config found in FLASH. Using default values.\n",
+            storedMagic, ctx->configData.magic);
     return -1;
   }
-  DPRINTF("Magic value found in FLASH: %lu. Loading the existing values.\n",
-          magic);
 
+  DPRINTF("Magic value found in FLASH: %lu. Loading existing values.\n",
+          storedMagic);
+
+  // Now read each entry in a loop
+  // We'll simply read as many entries as we can, up to numEntries
   uint16_t count = 0;
   while (count < numEntries) {
     SettingsConfigEntry entry = {0};
     memcpy(&entry, currentAddress, sizeof(SettingsConfigEntry));
-
     currentAddress += sizeof(SettingsConfigEntry);
 
-    // Check for the end of the config entries
     if (entry.key[0] == '\0') {
-      break;  // Exit the loop if we encounter a key length of 0 (end of
-              // entries)
+      // This indicates we've reached the end
+      break;
     }
 
     if (checkKeyFormat(entry.key) != 0) {
       DPRINTF(
-          "Invalid key format for key at address %p. Likely end of entries "
-          "in FLASH.\n",
-          currentAddress);
+          "Invalid key format for key at address %p. "
+          "Likely end of entries in FLASH.\n",
+          (void *)currentAddress);
       break;
     }
 
     if (checkTypeFormat(entry.dataType) != 0) {
       DPRINTF(
-          "Invalid type format for key %s stored. Likely end of entries in "
-          "FLASH.\n",
+          "Invalid type format for key %s stored. "
+          "Likely end of entries in FLASH.\n",
           entry.key);
       break;
     }
 
-    // Check if this key already exists in our loaded default entries
-    char keyStr[SETTINGS_MAX_KEY_LENGTH + 1] = {0};
-    strncpy(keyStr, entry.key, SETTINGS_MAX_KEY_LENGTH);
-    SettingsConfigEntry *existingEntry = settings_find_entry(keyStr);
-    if (existingEntry) {
-      *existingEntry = entry;
+    // Overwrite the matching default entry in ctx->configData
+    // if it exists:
+    for (size_t i = 0; i < ctx->configData.count; i++) {
+      if (strncmp(ctx->configData.entries[i].key, entry.key,
+                  SETTINGS_MAX_KEY_LENGTH) == 0) {
+        ctx->configData.entries[i] = entry;
+        break;  // Found the match, updated, done
+      }
     }
-    // No else part here since we know every memory entry has a default
     count++;
   }
+
   return 0;
 }
 
-int settings_init(const SettingsConfigEntry *defaultEntries,
-                  const uint16_t defaultNumEntries, const uint32_t flashOffset,
-                  const uint32_t flashSize, const uint16_t magic,
-                  const uint16_t version) {
-  // Check if the flash_settings_size is multiple of SETTINGS_FLASH_PAGE_SIZE
+/*
+ * -----------
+ * PUBLIC API IMPLEMENTATION
+ * -----------
+ */
+
+int settings_init(SettingsContext *ctx,
+                  const SettingsConfigEntry *defaultEntries,
+                  uint16_t defaultNumEntries, uint32_t flashOffset,
+                  uint32_t flashSize, uint16_t magic, uint16_t version) {
+  // 1) Validate/Assign flash parameters
   assert(flashSize % SETTINGS_FLASH_PAGE_SIZE == 0);
-  flashSettingsSize = flashSize;
-  DPRINTF("Flash settings size: %lu\n", flashSettingsSize);
-
-  // Check if the flash_settings_offset is multiple of SETTINGS_FLASH_PAGE_SIZE
+  ctx->flashSettingsSize = flashSize;
   assert(flashOffset % SETTINGS_FLASH_PAGE_SIZE == 0);
-  flashSettingsOffset = flashOffset;
-  DPRINTF("Flash settings offset: %lx\n", flashSettingsOffset);
+  ctx->flashSettingsOffset = flashOffset;
 
-  // Count the number of elements in the defaultEntries array
-  size_t maxEntries = flashSettingsSize / sizeof(SettingsConfigEntry);
-  DPRINTF("Max entries count: %d\n", maxEntries);
+  DPRINTF("Flash settings size: %lu\n", (unsigned long)ctx->flashSettingsSize);
+  DPRINTF("Flash settings offset: 0x%lx\n",
+          (unsigned long)ctx->flashSettingsOffset);
 
-  // Check if the number of default entries exceeds the maximum number of
-  // entries
+  // 2) Allocate memory for all possible entries
+  size_t maxEntries = ctx->flashSettingsSize / sizeof(SettingsConfigEntry);
+  DPRINTF("Max entries count: %zu\n", maxEntries);
+
   assert(defaultNumEntries <= maxEntries);
   DPRINTF("Default entries count: %d\n", defaultNumEntries);
 
-  // Initialize the number of entries to the default entries count
-  uint32_t entriesMemorySize = flashSettingsSize;
-  configData.entries = (SettingsConfigEntry *)malloc(entriesMemorySize);
-  DPRINTF("Reserved memory %lu for %d entries.\n", entriesMemorySize,
-          maxEntries);
+  // 3) Prepare the configData structure
+  ctx->configData.entries =
+      (SettingsConfigEntry *)malloc(ctx->flashSettingsSize);
+  if (!ctx->configData.entries) {
+    DPRINTF("Error: Unable to allocate memory for config entries.\n");
+    return -1;
+  }
+  ctx->configData.count = 0;
 
-  // Create the large magic value by combining the magic and version
-  configData.magic = (magic << SETTINGS_SHIFT_LEFT_16_BITS) | version;
+  // 4) Build the 32-bit magic from (magic << 16) | version
+  ctx->configData.magic =
+      ((uint32_t)magic << SETTINGS_SHIFT_LEFT_16_BITS) | version;
+  DPRINTF("Combined magic: 0x%08lx\n", (unsigned long)ctx->configData.magic);
 
-  // Append at the beginning of the defaultEntries array the magic value
+  // 5) Create an augmented default array with the MAGICVERSION entry at the
+  // front.
+  SettingsConfigEntry *defaultEntriesWithMagic = (SettingsConfigEntry *)malloc(
+      (defaultNumEntries + 1) * sizeof(SettingsConfigEntry));
+  if (!defaultEntriesWithMagic) {
+    DPRINTF(
+        "Error: Unable to allocate memory for default entries with magic.\n");
+    return -1;
+  }
+
+  // Fill the special "MAGICVERSION" entry
   char magicValue[SETTINGS_MAX_VALUE_LENGTH];
-  snprintf(magicValue, sizeof(magicValue), "%lu", configData.magic);
-  DPRINTF("Magic value string: %s\n", magicValue);
+  snprintf(magicValue, sizeof(magicValue), "%lu",
+           (unsigned long)ctx->configData.magic);
   SettingsConfigEntry magicEntry = {
       SETTINGS_MAGICVERSION_KEY, SETTINGS_TYPE_INT, {0}};
   strncpy(magicEntry.value, magicValue, SETTINGS_MAX_VALUE_LENGTH - 1);
-  magicEntry.value[SETTINGS_MAX_VALUE_LENGTH - 1] =
-      '\0';  // Ensure null-termination
+  magicEntry.value[SETTINGS_MAX_VALUE_LENGTH - 1] = '\0';
 
-  // Clone the default entries array in a newarray with the magic entry at the
-  // beginning
-  SettingsConfigEntry *defaultEntriesWithMagic = (SettingsConfigEntry *)malloc(
-      (defaultNumEntries + 1) * sizeof(SettingsConfigEntry));
+  // Put the magic entry first, then copy the user’s defaults
   defaultEntriesWithMagic[0] = magicEntry;
   memcpy(defaultEntriesWithMagic + 1, defaultEntries,
          defaultNumEntries * sizeof(SettingsConfigEntry));
 
-  // Load the configuration from FLASH
-  int error = settingsLoadAllEntries(defaultEntriesWithMagic, defaultNumEntries + 1,
-                         maxEntries);
+  // 6) Load from flash (or default) into ctx->configData
+  int error = settingsLoadAllEntries(ctx, defaultEntriesWithMagic,
+                                     (uint16_t)(defaultNumEntries + 1),
+                                     (uint16_t)maxEntries);
 
-  // Return the number of entries loaded into memory
-  return (error == 0 ? configData.count : error);
+  free(defaultEntriesWithMagic);
+
+  // Return the number of entries loaded, or error
+  return (error == 0 ? (int)ctx->configData.count : error);
 }
 
-// SettingsConfigEntry* entry = settings_find_entry("desired_key");
-// if (entry != NULL) {
-//     // Access the entry's data using entry->value, entry->dataType, etc.
-// } else {
-//     // Entry with the desired key was not found.
-// }
+int settings_deinit(SettingsContext *ctx) {
+  if (!ctx) return -1;
+
+  // Reset the entire structure
+  if (ctx->configData.entries) {
+    free(ctx->configData.entries);
+    ctx->configData.entries = NULL;
+  }
+  ctx->configData.count = 0;
+  ctx->flashSettingsSize = SETTINGS_DEFAULT_FLASH_SIZE;
+  ctx->flashSettingsOffset = 0;
+
+  return 0;
+}
+
+int settings_save(SettingsContext *ctx, bool disable_interrupts) {
+  if (!ctx) return -1;
+
+  // Check if we don't exceed the reserved space
+  size_t totalUsed = ctx->configData.count * sizeof(SettingsConfigEntry);
+  if (totalUsed > ctx->flashSettingsSize) {
+    DPRINTF("Error: config size %zu exceeds reserved space %u.\n", totalUsed,
+            ctx->flashSettingsSize);
+    return -1;
+  }
+
+  DPRINTF("Writing %zu entries to FLASH (size=%zu bytes).\n",
+          ctx->configData.count, totalUsed);
+
+  uint32_t ints = 0;
+  if (disable_interrupts) {
+    ints = save_and_disable_interrupts();
+  }
+
+  flash_range_erase(ctx->flashSettingsOffset, ctx->flashSettingsSize);
+  flash_range_program(ctx->flashSettingsOffset,
+                      (uint8_t *)ctx->configData.entries,
+                      ctx->flashSettingsSize);
+
+  if (disable_interrupts) {
+    restore_interrupts(ints);
+  }
+
+  return 0;
+}
+
+int settings_erase(SettingsContext *ctx) {
+  if (!ctx) return -1;
+
+  // Erase the flash region
+  uint32_t ints = save_and_disable_interrupts();
+  flash_range_erase(ctx->flashSettingsOffset, ctx->flashSettingsSize);
+  restore_interrupts(ints);
+
+  // Free and reset
+  if (ctx->configData.entries) {
+    free(ctx->configData.entries);
+    ctx->configData.entries = NULL;
+  }
+  ctx->configData.count = 0;
+
+  return 0;
+}
+
 SettingsConfigEntry *settings_find_entry(
-    const char key[SETTINGS_MAX_KEY_LENGTH]) {
-  // Check if the key is format valid
+    SettingsContext *ctx, const char key[SETTINGS_MAX_KEY_LENGTH]) {
+  if (!ctx) return NULL;
   if (checkKeyFormat(key) != 0) {
     DPRINTF("Invalid key format for key %s.\n", key);
     return NULL;
   }
-  for (size_t i = 0; i < configData.count; i++) {
-    if (strncmp(configData.entries[i].key, key, SETTINGS_MAX_KEY_LENGTH) == 0) {
-      return &configData.entries[i];
+
+  for (size_t i = 0; i < ctx->configData.count; i++) {
+    if (strncmp(ctx->configData.entries[i].key, key, SETTINGS_MAX_KEY_LENGTH) ==
+        0) {
+      return &ctx->configData.entries[i];
     }
   }
   DPRINTF("Key %s not found.\n", key);
   return NULL;
 }
 
-static int settingsUpdateEntry(const char key[SETTINGS_MAX_KEY_LENGTH],
+/**
+ * @brief Internal helper to update an entry if it exists.
+ */
+static int settingsUpdateEntry(SettingsContext *ctx,
+                               const char key[SETTINGS_MAX_KEY_LENGTH],
                                SettingsDataType dataType,
-                               char value[SETTINGS_MAX_VALUE_LENGTH]) {
-  // Check if the key is format valid
+                               const char value[SETTINGS_MAX_VALUE_LENGTH]) {
   if (checkKeyFormat(key) != 0) {
-    DPRINTF("Invalid key format for key %s.\n", key);
+    DPRINTF("Invalid key format: %s\n", key);
     return -1;
   }
-  // Check if the key already exists
-  for (size_t i = 0; i < configData.count; i++) {
-    if (strncmp(configData.entries[i].key, key, SETTINGS_MAX_KEY_LENGTH) == 0) {
-      // Key already exists. Update its value and dataType
-      configData.entries[i].dataType = dataType;
-      strncpy(configData.entries[i].value, value,
+  if (checkTypeFormat(dataType) != 0) {
+    DPRINTF("Invalid data type for key: %s\n", key);
+    return -1;
+  }
+
+  for (size_t i = 0; i < ctx->configData.count; i++) {
+    if (strncmp(ctx->configData.entries[i].key, key, SETTINGS_MAX_KEY_LENGTH) ==
+        0) {
+      // Key found, update
+      ctx->configData.entries[i].dataType = dataType;
+      strncpy(ctx->configData.entries[i].value, value,
               SETTINGS_MAX_VALUE_LENGTH - 1);
-      configData.entries[i].value[SETTINGS_MAX_VALUE_LENGTH - 1] =
-          '\0';  // Ensure null-termination
-      return 0;  // Successfully updated existing entry
+      ctx->configData.entries[i].value[SETTINGS_MAX_VALUE_LENGTH - 1] = '\0';
+      return 0;
     }
   }
-  DPRINTF("Key %s not found.\n", key);
-  return -1;  // Key not found. Cannot update non-existing entry
+  DPRINTF("Key %s not found (cannot update).\n", key);
+  return -1;
 }
 
-int settings_put_bool(const char key[SETTINGS_MAX_KEY_LENGTH], bool value) {
-  return settingsUpdateEntry(key, SETTINGS_TYPE_BOOL, value ? "true" : "false");
+int settings_put_bool(SettingsContext *ctx,
+                      const char key[SETTINGS_MAX_KEY_LENGTH], bool value) {
+  return settingsUpdateEntry(ctx, key, SETTINGS_TYPE_BOOL,
+                             value ? "true" : "false");
 }
 
-int settings_put_string(const char key[SETTINGS_MAX_KEY_LENGTH],
+int settings_put_string(SettingsContext *ctx,
+                        const char key[SETTINGS_MAX_KEY_LENGTH],
                         const char *value) {
-  char configValue[SETTINGS_MAX_VALUE_LENGTH];
-  strncpy(configValue, value, SETTINGS_MAX_VALUE_LENGTH - 1);
-  configValue[SETTINGS_MAX_VALUE_LENGTH - 1] = '\0';  // Ensure null termination
-  return settingsUpdateEntry(key, SETTINGS_TYPE_STRING, configValue);
-}
-
-int settings_put_integer(const char key[SETTINGS_MAX_KEY_LENGTH], int value) {
-  char configValue[SETTINGS_MAX_VALUE_LENGTH];
-  snprintf(configValue, sizeof(configValue), "%d", value);
-  // Set \0 at the end of the configValue string
-  configValue[SETTINGS_MAX_VALUE_LENGTH - 1] = '\0';
-  return settingsUpdateEntry(key, SETTINGS_TYPE_INT, configValue);
-}
-
-int settings_save() {
-  uint8_t *address = (uint8_t *)(flashSettingsOffset + XIP_BASE);
-
-  // Ensure we don't exceed the reserved space
-  if (configData.count * sizeof(SettingsConfigEntry) > flashSettingsSize) {
-    return -1;  // Error: Config size exceeds reserved space
+  if (!value) {
+    DPRINTF("Error: NULL value for string key %s\n", key);
+    return -1;
   }
-  DPRINTF("Writing %d entries to FLASH.\n", configData.count);
-  DPRINTF("Size of entries: %lu\n",
-          configData.count * sizeof(SettingsConfigEntry));
-
-  uint32_t ints = save_and_disable_interrupts();
-
-  // Erase the content before writing the configuration
-  // overwriting it's not enough
-  flash_range_erase(flashSettingsOffset,
-                    flashSettingsSize);  // 4 Kbytes multiple
-
-  // Transfer config to FLASH
-  flash_range_program(flashSettingsOffset, (uint8_t *)configData.entries,
-                      flashSettingsSize);
-
-  restore_interrupts(ints);
-
-  return 0;  // Successful write
+  char buffer[SETTINGS_MAX_VALUE_LENGTH];
+  strncpy(buffer, value, SETTINGS_MAX_VALUE_LENGTH - 1);
+  buffer[SETTINGS_MAX_VALUE_LENGTH - 1] = '\0';
+  return settingsUpdateEntry(ctx, key, SETTINGS_TYPE_STRING, buffer);
 }
 
-int settings_erase() {
-  uint32_t ints = save_and_disable_interrupts();
-
-  // Erase the content before writing the configuration
-  // overwriting it's not enough
-  flash_range_erase(flashSettingsOffset, flashSettingsSize);  // 4 Kbytes
-
-  restore_interrupts(ints);
-
-  free(configData.entries);
-  memset(&configData, 0, sizeof(ConfigData));
-
-  return 0;  // Successful write
+int settings_put_integer(SettingsContext *ctx,
+                         const char key[SETTINGS_MAX_KEY_LENGTH], int value) {
+  char buffer[SETTINGS_MAX_VALUE_LENGTH];
+  snprintf(buffer, sizeof(buffer), "%d", value);
+  buffer[SETTINGS_MAX_VALUE_LENGTH - 1] = '\0';
+  return settingsUpdateEntry(ctx, key, SETTINGS_TYPE_INT, buffer);
 }
 
-void settings_print() {
-  char dashes[SETTINGS_MAX_VALUE_LENGTH + 2] = {0};
-  for (size_t i = 0; i < SETTINGS_MAX_VALUE_LENGTH + 2; i++) {
-    dashes[i] = '-';
-  }
-  DPRINTF("+---+%.*s+%.*s+----------+\n", SETTINGS_MAX_KEY_LENGTH + 2, dashes,
-          SETTINGS_MAX_VALUE_LENGTH + 2, dashes);
-  DPRINTF("|IDX| %-*s | %-*s |   Type   |\n", SETTINGS_MAX_KEY_LENGTH, "Key",
-          SETTINGS_MAX_VALUE_LENGTH, "Value");
-  DPRINTF("+---+%.*s+%.*s+----------+\n", SETTINGS_MAX_KEY_LENGTH + 2, dashes,
-          SETTINGS_MAX_VALUE_LENGTH + 2, dashes);
+/**
+ * @brief Print the current configuration in a tabular format.
+ */
+void settings_print(SettingsContext *ctx, char *buffer) {
+  if (!ctx) return;
 
-  for (size_t i = 0; i < configData.count; i++) {
-    char valueStr[SETTINGS_MAX_VALUE_LENGTH];  // Buffer to format the value
+  // We'll use a fixed-size buffer if none is provided
+  size_t remaining = 2048;
+  char *outputBuffer = NULL;
 
-    switch (configData.entries[i].dataType) {
-      case SETTINGS_TYPE_INT:
-      case SETTINGS_TYPE_STRING:
-      case SETTINGS_TYPE_BOOL:
-        snprintf(valueStr, sizeof(valueStr), "%s", configData.entries[i].value);
-        break;
-      default:
-        snprintf(valueStr, sizeof(valueStr), "Unknown");
-        break;
+  if (buffer == NULL) {
+    // Allocate a buffer if none is provided
+    outputBuffer = (char *)malloc(remaining);
+    if (!outputBuffer) {
+      DPRINTF("Error: Unable to allocate memory for output buffer.\n");
+      return;
     }
+  } else {
+    // Use the provided buffer
+    outputBuffer = buffer;
+  }
 
-    char *typeStr;
-    switch (configData.entries[i].dataType) {
+  char *ptr = outputBuffer;
+  size_t len = 0;
+
+  // Loop through each entry
+  for (size_t i = 0; i < ctx->configData.count && remaining > 0; i++) {
+    const char *typeStr = "UNK";
+    switch (ctx->configData.entries[i].dataType) {
       case SETTINGS_TYPE_INT:
         typeStr = "INT";
         break;
       case SETTINGS_TYPE_STRING:
-        typeStr = "STRING";
+        typeStr = "STR";
         break;
       case SETTINGS_TYPE_BOOL:
         typeStr = "BOOL";
         break;
       default:
-        typeStr = "UNKNOWN";
+        typeStr = "UNK";
         break;
     }
-    char keyStr[SETTINGS_MAX_KEY_LENGTH + 1] = {0};
-    strncpy(keyStr, configData.entries[i].key, SETTINGS_MAX_KEY_LENGTH);
-    // DPRINTF("|%-3d| %-20s | %-30s | %-8s |\n", i, keyStr, valueStr, typeStr);
-    DPRINTF("|%-3d| %-*s | %-*s | %-8s |\n", i, SETTINGS_MAX_KEY_LENGTH, keyStr,
-            SETTINGS_MAX_VALUE_LENGTH, valueStr, typeStr);
+
+    // Print in the format: "KEY (TYPE): Value\n"
+    len = snprintf(ptr, remaining, "%s (%s): %s\n",
+                   ctx->configData.entries[i].key, typeStr,
+                   ctx->configData.entries[i].value);
+
+    ptr += len;
+    remaining = (len < remaining) ? (remaining - len) : 0;
   }
 
-  DPRINTF("+---+%.*s+%.*s+----------+\n", SETTINGS_MAX_KEY_LENGTH + 2, dashes,
-          SETTINGS_MAX_VALUE_LENGTH + 2, dashes);
+  // Ensure null-termination
+  if (remaining > 0) {
+    *ptr = '\0';
+  }
+
+  // If no external buffer was provided, print and free
+  if (buffer == NULL) {
+    DPRINTFRAW("%s", outputBuffer);
+    free(outputBuffer);
+  }
 }
